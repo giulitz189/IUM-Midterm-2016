@@ -24,8 +24,8 @@
             | InsertBezier  = 4 -> inserisce una curva di Bezièr
             | MoveThings    = 5 -> stato default: drag&drop ed eliminazione di primitive
 
-        N.B. il drag&drop e l'eliminazione non sono supportate per le curve di Bezièr
-             (ho avuto problemi con lo hitTest).
+        N.B. il drag&drop e l'eliminazione non sono supportate per le curve di Bezièr in MoveThings
+             (ho avuto problemi con lo hitTest), solo l'eliminazione in FreeTransform tramite tasto R.
 
     Nello stato MoveThings, l'editor permette il drag&drop col tasto sinistro del mouse,
     e l'eliminazione di una primitiva col tasto destro.
@@ -33,6 +33,8 @@
     Nello stato FreeTransform, l'editor permette di modificare i punti di disegno delle
     primitive col tasto sinistro sull'handler; il tasto destro riporta l'editor
     nello stato di default.
+    Con il WASD è possibile muovere la primitiva grafica per ultimo selezionata (tramite handlers),
+    mentre con la R è rimuovibile.
 
     I comandi da tastiera sono gli stessi utilizzati nel Curve Editor dell'Esercizio 2, a sua
     volta gli stessi utilizzati nel Curve Editor visto a lezione.
@@ -206,29 +208,15 @@ type VectorControl() as this =
         | NavBut.Left  -> (-10.f, 0.f)
         | NavBut.Right -> (10.f,  0.f)
 
-    // Handle per i tasti premuti
-    let handleKeys (k: Keys) =
-        match k with
-        // Traslazione
-        | Keys.W -> scrollBy NavBut.Up    |> Translate; this.Invalidate()
-        | Keys.A -> scrollBy NavBut.Left  |> Translate; this.Invalidate()
-        | Keys.S -> scrollBy NavBut.Down  |> Translate; this.Invalidate()
-        | Keys.D -> scrollBy NavBut.Right |> Translate; this.Invalidate()
-        // Rotazione
-        | Keys.Q -> let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
-                    RotateAtW p 10.f
-                    this.Invalidate()
-        | Keys.E -> let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
-                    RotateAtW p -10.f
-                    this.Invalidate()
-        // Scalatura
-        | Keys.Z -> let pScale = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
-                    ScaleW(1.1f, 1.1f)
-                    this.Invalidate()
-        | Keys.X -> let pScale = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
-                    ScaleW(1.f/1.1f, 1.f/1.1f)
-                    this.Invalidate()
-        | _ -> ()
+    // Oggetto selezionato
+    let mutable (idxSelected: int option)                           = None
+    let mutable (objSelected: (PointF[] * string * float32) option) = None
+    // Punti di riferimento per il drag&drop
+    let mutable startDragging  = PointF()
+    let mutable offsetDragging = PointF()
+
+    // Punto di inizio dragging
+    let mutable idxPointer  = -1
 
     // Creazione punti disegno
     let constructionPoints (ip: Point) (dp: Point) =
@@ -255,6 +243,117 @@ type VectorControl() as this =
         // Utilizza i float
         [| PointF(ip.X, ip.Y); PointF(dp.X, dp.Y) |]
 
+    // Trasla una primitiva grafica selezionata in edit mode
+    let editTranslateTo (k: Keys) =
+        match objSelected with
+        | None -> ()
+        | Some (p, id, sz) ->
+            let mutable factorX = 0.f
+            let mutable factorY = 0.f
+
+            (match k with
+            | Keys.W -> factorY <- -10.f
+            | Keys.A -> factorX <- -10.f
+            | Keys.S -> factorY <- 10.f
+            | Keys.D -> factorX <- 10.f
+            | _      -> ())
+
+            let newPoint0 = PointF(p.[0].X + factorX, p.[0].Y + factorY)
+            let newPoint1 = PointF(p.[1].X + factorX, p.[1].Y + factorY)
+
+            //if id = "line" then
+            //    let newPoints = [| newPoint0; newPoint1 |]
+            //    objSelected <- Some (newPoints, id, sz)
+            //else
+            //    let newPoint2 = PointF(p.[2].X + factorX, p.[2].Y + factorY)
+            //    let newPoint3 = PointF(p.[3].X + factorX, p.[3].Y + factorY)
+            //    let newPoints = [| newPoint0; newPoint1; newPoint2; newPoint3 |]
+            //    objSelected <- Some (newPoints, id, sz)
+            if id = "line" then objSelected <- Some (constructionLineF newPoint0 newPoint1, id, sz)
+            elif id = "bezi" then
+                let newPoint2 = PointF(p.[0].X + factorX, p.[0].Y + factorY)
+                let newPoint3 = PointF(p.[1].X + factorX, p.[1].Y + factorY)
+                let newPoints = [| newPoint0; newPoint1; newPoint2; newPoint3 |]
+                objSelected <- Some (newPoints, id, sz)
+            else objSelected <- Some (constructionPointsF newPoint0 newPoint1, id, sz)
+            
+    // Stringe/allarga una primitiva grafica selezionata in edit mode
+    let editScaleTo (k: Keys) =
+        match objSelected with
+        | None -> ()
+        | Some (p, id, sz) ->
+            let mutable factXL, factYL = 0.f, 0.f
+            let mutable factXR, factYR = 0.f, 0.f
+
+            (match k with
+            // Allarga
+            | Keys.Z -> factXL <- -10.f; factXR <- 10.f
+                        factYL <- -10.f; factYR <- 10.f
+            // Stringi
+            | Keys.X -> factXL <- 10.f; factXR <- -10.f
+                        factYL <- 10.f; factYR <- -10.f
+            | _ -> ())
+
+            let newPoint0 = PointF(p.[0].X + factXL, p.[0].Y + factYL)
+            let newPoint1 = PointF(p.[1].X + factXR, p.[1].Y + factYR)
+
+            if id = "line" then objSelected <- Some (constructionLineF newPoint0 newPoint1, id, sz)
+            elif id = "bezi" then ()
+            else objSelected <- Some (constructionPointsF newPoint0 newPoint1, id, sz)
+
+    // Handle per i tasti premuti
+    let handleKeys (k: Keys) =
+        match k with
+        // Traslazione
+        | Keys.W -> if editState = StateEditor.MoveThings then scrollBy NavBut.Up |> Translate
+                    // Muove l'elemento selezionato in edit mode in su
+                    elif editState = StateEditor.FreeTransform then
+                        editTranslateTo k
+                    this.Invalidate()
+        | Keys.A -> if editState = StateEditor.MoveThings then scrollBy NavBut.Left |> Translate
+                    // Muove l'elemento selezionato in edit mode a sinistra
+                    elif editState = StateEditor.FreeTransform then
+                        editTranslateTo k
+                    this.Invalidate()
+        | Keys.S -> if editState = StateEditor.MoveThings then scrollBy NavBut.Down |> Translate
+                    // Muove l'elemento selezionato in edit mode in basso
+                    elif editState = StateEditor.FreeTransform then
+                        editTranslateTo k
+                    this.Invalidate()
+        | Keys.D -> if editState = StateEditor.MoveThings then scrollBy NavBut.Left |> Translate
+                    // Muove l'elemento selezionato in edit mode a destra
+                    elif editState = StateEditor.FreeTransform then
+                        editTranslateTo k
+                    this.Invalidate()
+        // Rotazione
+        | Keys.Q -> if editState = StateEditor.FreeTransform then ()
+                    else
+                        let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
+                        RotateAtW p 10.f
+                    this.Invalidate()
+        | Keys.E -> if editState = StateEditor.FreeTransform then ()
+                    else
+                        let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
+                        RotateAtW p -10.f
+                    this.Invalidate()
+        // Scalatura
+        | Keys.Z -> if editState = StateEditor.FreeTransform then () // editScaleTo k
+                    else
+                        let pScale = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
+                        ScaleW(1.1f, 1.1f)
+                    this.Invalidate()
+        | Keys.X -> if editState = StateEditor.FreeTransform then () // editScaleTo k
+                    else
+                        let pScale = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
+                        ScaleW(1.f/1.1f, 1.f/1.1f)
+                    this.Invalidate()
+        // Rimuove in edit mode
+        | Keys.R when editState = StateEditor.FreeTransform ->
+            (match objSelected with
+            | None   -> ()
+            | Some _ -> objSelected <- None; idxSelected <- None; idxPointer <- -1; this.Invalidate())
+        | _ -> ()
+
     // Timer scrolling
     let scrollTimer = new Timer(Interval = 30)
     // Direzione scrolling
@@ -278,13 +377,6 @@ type VectorControl() as this =
                               dragPoint <- None
         | _, _ -> ()
         editState <- StateEditor.MoveThings
-
-    // Oggetto selezionato
-    let mutable (idxSelected: int option)                 = None
-    let mutable (objSelected: (PointF[] * string * float32) option) = None
-    // Punti di riferimento per il drag&drop
-    let mutable startDragging  = PointF()
-    let mutable offsetDragging = PointF()
 
     let handleSize = 5.f
     // Drag&Drop disabilitato per le curve di Bezièr
@@ -317,9 +409,6 @@ type VectorControl() as this =
         // Il contesto grafico è già traslato su W2V
         for p in pts do
             g.FillEllipse(Brushes.Blue, p.X - handleSize, p.Y - handleSize, 2.f * handleSize, 2.f * handleSize)
-
-    // Punto di inizio dragging
-    let mutable idxPointer  = -1
 
     let movePointsBezi (newPt: PointF) (pts: PointF[]) =
         let mutable newPoint0 = pts.[0]
@@ -387,10 +476,6 @@ type VectorControl() as this =
     member this.PressedRight   = scrollDir <- NavBut.Right; scrollTimer.Start()
     member this.UnPressedRight = scrollTimer.Stop()
 
-    // Echo dell'evento KeyDown dal DockControl
-    member this.DockKeyDown e =
-        this.OnKeyDown e
-
     // Stato interno dell'editor
     member this.EditorState with get() = editState and set(v) = editState <- v
     member this.Objects = objects
@@ -419,12 +504,14 @@ type VectorControl() as this =
             // Trasforma le coordinate del mouse in coordinate mondo
             let mPoint  = TransformPW this.V2W e.Location
             let hitTest = handleHitTestE mPoint
+            // Oggetto ancora selezionato
+            if objSelected.IsSome then objects.Add(objSelected.Value); objSelected <- None; idxSelected <- None; idxPointer <- -1
             // Trova elementi che corrispondono al click
             idxSelected <- objects |> Seq.tryFindIndexBack hitTest
             (match idxSelected with
             // Segna l'elemento trovato come elemento selezionato e rimuovi dalla collezione
             | Some v -> objSelected <- Some objects.[v]; objects.RemoveAt(v)
-            | None   -> ())
+            | None   -> this.Focus() |> ignore)
             // Calcola l'offset per il dragging
             (match objSelected with
             | Some (p, s, sz) -> idxPointer     <- getIdxHit mPoint p
@@ -474,8 +561,7 @@ type VectorControl() as this =
             | None   -> ())
         | StateEditor.FreeTransform -> 
             (match objSelected with
-            | Some v -> if e.Button = MouseButtons.Left then objects.Add(v)
-                        idxSelected <- None; objSelected <- None; idxPointer <- -1
+            | Some v -> if e.Button = MouseButtons.Left then idxPointer <- -1
             | None   -> ())
         // Aggiungi il rettangolo
         | StateEditor.InsertRectang -> addObject "rect"
@@ -629,9 +715,6 @@ type DockControl(vectsheet: VectorControl) as this =
 
     override this.OnMouseUp e =
         base.OnMouseUp e
-
-    override this.OnKeyDown e =
-        vectsheet.DockKeyDown e
     
     // Override necessario per cambiare le impostazioni dello sfondo
     override this.UseBuffer() =
