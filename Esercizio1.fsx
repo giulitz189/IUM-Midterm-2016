@@ -60,23 +60,28 @@ type GameObject() =
     let siz = SizeF(20.f, 20.f)
     
     // Matrice per trasformazioni, spazio B
-    let mtx = new Drawing2D.Matrix()
+    let startMtx         = new Drawing2D.Matrix()
+    let mutable movinMtx = new Drawing2D.Matrix()
 
-    member this.ModelSpace = mtx
+    member this.ModelSpace = movinMtx
     member this.Bounds = RectangleF(pos, siz)
-    member this.ApplyTranslation (p: PointF) =
-        // Applica la traslazione alla matrice di trasformazione
-        mtx.Translate(p.X, p.Y)
 
-    member this.InterpolationX (total: float32) (where: float32) (dur: float32) 
+    member this.Interpolation (total: float32) (where: Drawing2D.Matrix) (dur: float32) 
         (interFoo : float32 -> float32 -> float32 -> float32 -> float32) =
         // Interpolazione lungo asse X
         if (total >= dur) then ()
         else
             // Calcola il nuovo valore con la funzione d'interpolazione specificata
-            let newX = interFoo total 0.f where dur
-            // Applica la nuova traslazione
-            this.ApplyTranslation (PointF(newX - mtx.OffsetX, 0.f))
+            let strElems = movinMtx.Elements
+            let mtxElems = movinMtx.Elements
+            let finElems = where.Elements
+            let newElems = new ResizeArray<float32>()
+
+            for i in { 0 .. (strElems.Length - 1) } do
+                newElems.Add(interFoo total strElems.[i] (finElems.[i] - mtxElems.[i]) dur)
+
+            movinMtx.Dispose()
+            movinMtx <- new Drawing2D.Matrix(newElems.[0], newElems.[1], newElems.[2], newElems.[3], newElems.[4], newElems.[5])
 
 // ------------------------------------------------------------------------------------------------------ //
 
@@ -86,6 +91,8 @@ type myControl() as this =
 
     let obj = new GameObject()
     let mutable startAnim = System.DateTime.Now
+    // Posizione finale da applicare all'oggetto
+    let finalMtx = new Drawing2D.Matrix(3.f, 0.f, 0.f, 3.f, 200.f, 250.f)
 
     let timer = new Timer()
     do
@@ -94,7 +101,7 @@ type myControl() as this =
             let nowTime = System.DateTime.Now
             let totalT  = (nowTime - startAnim).TotalMilliseconds
 
-            obj.InterpolationX (float32(totalT)) 300.f 600.f easeInCirc
+            obj.Interpolation (float32(totalT)) finalMtx 1200.f easeInQuad
             this.Invalidate()
         )
 

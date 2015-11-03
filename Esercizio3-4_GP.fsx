@@ -228,7 +228,8 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) =
     let ballBrush = new SolidBrush(Color.Blue)
     
     let mutable location = loc
-    let mutable speed    = spd
+    let mutable iSpeed   = spd
+    let mutable fSpeed   = spd
     let mutable lastT    = System.DateTime.Now
 
     let collideWith (obj: GraphicsObject) =
@@ -238,19 +239,23 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) =
         ballRegion.Intersect(obj.GetRegion)
 
     member this.Location = location
-    member this.Speed    = speed
+    member this.Speed    = fSpeed
     member this.Bounds   = new RectangleF(location, size)
     member this.BPen     = ballPen
     member this.BBrush   = ballBrush
 
     member this.UpdatePosition =
-        let t  = System.DateTime.Now
-        let dt = single (t - lastT).TotalSeconds
-        let vx = speed.Width / 2.f
-        let vy = speed.Height / 2.f
-        let x = - vx * dt
-        let y = - (vy * dt) + ((5.f * (dt*dt)) / 2.f)
+        // Aggiorna la posizione usando il moto parabolico
+        let t   = System.DateTime.Now
+        let acc = 9.81f * 70.f
+        let dt  = single (t - lastT).TotalSeconds
+        let vx  = iSpeed.Width
+        let vy  = iSpeed.Height
+        let x   = - vx * dt
+        let y   = - (vy * dt) + ((acc * (dt*dt)) * 0.5f)
+
         location <- new PointF(location.X + x, location.Y + y)
+        fSpeed   <- SizeF(iSpeed.Width, iSpeed.Height - (acc * dt))
     
 // ---------------------------------------------------------------------------------------------------- //
 // ---------------------------------------------------------------------------------------------------- //
@@ -686,11 +691,11 @@ type VectorControl() as this =
         let drawIPen = new Pen(Color.Green, sizePen)
         let backIPen = new Pen(Color.FromArgb(0xB3, 0xB3, 0xB3))
 
-        for i in { 0 .. 20 .. this.Width } do
-            gCont.DrawLine(backIPen, Point(i, 0), Point(i, this.Height))
+        //for i in { 0 .. 20 .. this.Width } do
+        //    gCont.DrawLine(backIPen, Point(i, 0), Point(i, this.Height))
 
-        for i in { 0 .. 20 .. this.Height } do
-            gCont.DrawLine(backIPen, Point(0, i), Point(this.Width, i))
+        //for i in { 0 .. 20 .. this.Height } do
+        //    gCont.DrawLine(backIPen, Point(0, i), Point(this.Width, i))
 
         gCont.Transform <- this.W2V
         // Disegna gli oggetti
