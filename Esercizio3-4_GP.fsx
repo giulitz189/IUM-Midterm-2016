@@ -223,7 +223,7 @@ type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType)
 // ---------------------------------------------------------------------------------------------------- //
 // ---------------------------------------------------------------------------------------------------- //
 type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
-    let size = SizeF(25.f, 25.f)
+    let size      = SizeF(25.f, 25.f)
     let ballPen   = new Pen(Color.DarkBlue)
     let ballBrush = new SolidBrush(Color.Blue)
     
@@ -231,6 +231,7 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     let mutable iSpeed   = spd
     let mutable fSpeed   = spd
     let mutable lastT    = System.DateTime.Now
+    let mutable lastTf   = System.DateTime.Now
 
     // Ottiene una Region della pallina
     let getRegion() =
@@ -260,41 +261,67 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     // Calcola il grado di verità di una collisione e restituisce un eventuale indice
     let collideWith (aObj: ResizeArray<GraphicsObject>) (aBalls: ResizeArray<Ball>) =
         let mutable collideObj, collideBall = false, false
-        let mutable idxObj,     idxBall     = -1, -1
+        let mutable idxObj,     idxBall     = 0, 0
 
         // Collisione con la form
-        if (location.X <= 0.f || location.X >= single parent.Width || 
-            location.Y <= 0.f || location.Y >= single parent.Height) then (-1, 2)
+        if   location.X < 0.f                                then (0, 2) 
+        elif location.X + size.Width  > single parent.Width  then (1, 2)
+        elif location.Y < 0.f                                then (2, 2)
+        elif location.Y + size.Height > single parent.Height then (3, 2)
         else
             // Collisione con oggetti
             while idxObj < aObj.Count && not collideObj do
-                idxObj     <- idxObj + 1
                 collideObj <- collideWithObj aObj.[idxObj]
+                idxObj     <- idxObj + 1
+
             // Collisione con palline
             while not collideObj && idxBall < aBalls.Count && not collideBall do
-                idxBall     <- idxBall + 1
-                collideBall <- collideWithBall aBalls.[idxBall]
+                if not (this.Equals(aBalls.[idxBall])) then
+                    collideBall <- collideWithBall aBalls.[idxBall]
+                idxBall <- idxBall + 1
 
             // Restituisce (idx, type) con
             //      type = 0  -> Obj
             //      type = 1  -> Ball
             //      type = 2  -> Form
             //      type = -1 -> Not Found
-            if collideObj then (idxObj, 0)
-            elif collideBall then (idxBall, 1)
+            if collideObj then (idxObj - 1, 0)
+            elif collideBall then (idxBall - 1, 1)
             else (-1, -1)
 
-    member this.Location = location
-    member this.Speed    = fSpeed
-    member this.Bounds   = new RectangleF(location, size)
-    member this.BPen     = ballPen
-    member this.BBrush   = ballBrush
-    member this.Region() = getRegion()
+    member this.Location       = location
+    member this.Speed          = fSpeed
+    member this.CenterLocation = PointF(location.X + (size.Width * 0.5f), location.Y + (size.Height * 0.5f))
+    member this.Bounds         = new RectangleF(location, size)
+    member this.BPen           = ballPen
+    member this.BBrush         = ballBrush
+    member this.Region()       = getRegion()
+
+    member this.UpdateSpeed (aObj: ResizeArray<GraphicsObject>) (aBalls: ResizeArray<Ball>) =
+        let collision = collideWith aObj aBalls
+
+        match collision with
+        | (-1, -1)   -> ()
+        | (idx, typ) when typ = 2 -> if idx = 0 then 
+                                        iSpeed   <- SizeF(- fSpeed.Width * 0.3f, fSpeed.Height * 0.3f)
+                                        location <- PointF(0.f, location.Y)
+                                     elif idx = 1 then
+                                        iSpeed   <- SizeF(- fSpeed.Width * 0.3f, fSpeed.Height * 0.3f)
+                                        location <- PointF(single parent.Width - size.Width, location.Y)
+                                     elif idx = 2 then
+                                        iSpeed   <- SizeF(fSpeed.Width * 0.3f, - fSpeed.Height * 0.3f)
+                                        location <- PointF(location.X, 0.f)
+                                     else
+                                        iSpeed   <- SizeF(fSpeed.Width * 0.3f, - fSpeed.Height * 0.3f)
+                                        location <- PointF(location.X, single parent.Height - size.Height)
+                                     printfn "New speed %s" (iSpeed.ToString())
+                                     lastT <- lastTf
+        | _ -> ()
 
     member this.UpdatePosition =
         // Aggiorna la posizione usando il moto parabolico
         let t   = System.DateTime.Now
-        let acc = 9.81f * 70.f
+        let acc = 9.81f * 40.f
         let dt  = single (t - lastT).TotalSeconds
         let vx  = iSpeed.Width
         let vy  = iSpeed.Height
@@ -303,6 +330,7 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
 
         location <- new PointF(location.X + x, location.Y + y)
         fSpeed   <- SizeF(iSpeed.Width, iSpeed.Height - (acc * dt))
+        lastTf   <- t
     
 // ---------------------------------------------------------------------------------------------------- //
 // ---------------------------------------------------------------------------------------------------- //
@@ -471,7 +499,7 @@ type VectorControl() as this =
     // Timer scrolling
     let scrollTimer = new Timer(Interval = 30)
     let rotateTimer = new Timer(Interval = 60)
-    let ballsTimer  = new Timer(Interval = 17)
+    let ballsTimer  = new Timer(Interval = 2)
     // Direzione scrolling
     let mutable scrollDir = NavBut.Up
     let mutable rotateDir = NavBut.RLeft
@@ -489,6 +517,7 @@ type VectorControl() as this =
         ballsTimer.Tick.Add(fun _ ->
             balls |> Seq.iter (fun b ->
                 b.UpdatePosition
+                b.UpdateSpeed objects balls
                 this.Invalidate()
             )
         )

@@ -101,7 +101,7 @@ type myControl() as this =
             let nowTime = System.DateTime.Now
             let totalT  = (nowTime - startAnim).TotalMilliseconds
 
-            obj.Interpolation (float32(totalT)) finalMtx 3000.f easeInQuad
+            obj.Interpolation (float32(totalT)) finalMtx 600.f easeInQuad
             this.Invalidate()
         )
 
