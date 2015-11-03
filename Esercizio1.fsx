@@ -59,7 +59,7 @@ type GameObject() =
     let pos = PointF(0.f, 0.f)
     let siz = SizeF(20.f, 20.f)
     
-    // Matrice per trasformazioni, spazio B
+    // Matrice per trasformazioni
     let startMtx         = new Drawing2D.Matrix()
     let mutable movinMtx = new Drawing2D.Matrix()
 
@@ -72,7 +72,7 @@ type GameObject() =
         if (total >= dur) then ()
         else
             // Calcola il nuovo valore con la funzione d'interpolazione specificata
-            let strElems = movinMtx.Elements
+            let strElems = startMtx.Elements
             let mtxElems = movinMtx.Elements
             let finElems = where.Elements
             let newElems = new ResizeArray<float32>()
@@ -92,7 +92,7 @@ type myControl() as this =
     let obj = new GameObject()
     let mutable startAnim = System.DateTime.Now
     // Posizione finale da applicare all'oggetto
-    let finalMtx = new Drawing2D.Matrix(3.f, 0.f, 0.f, 3.f, 200.f, 250.f)
+    let finalMtx = new Drawing2D.Matrix(3.f, 0.f, 0.f, 3.f, 300.f, 300.f)
 
     let timer = new Timer()
     do
@@ -101,7 +101,7 @@ type myControl() as this =
             let nowTime = System.DateTime.Now
             let totalT  = (nowTime - startAnim).TotalMilliseconds
 
-            obj.Interpolation (float32(totalT)) finalMtx 1200.f easeInQuad
+            obj.Interpolation (float32(totalT)) finalMtx 3000.f easeInQuad
             this.Invalidate()
         )
 
@@ -132,6 +132,7 @@ type myControl() as this =
         let saveC = gb.Save()
         // Cambia le coordinate
         gb.Transform <- obj.ModelSpace
+
         // Disegna sul buffer
         gb.FillEllipse(Brushes.Red, obj.Bounds)
         gb.DrawEllipse(Pens.Black, obj.Bounds)
@@ -145,5 +146,6 @@ type myControl() as this =
 
 let form = new Form(Text = "Esercizio 1 - IUM Midterm 2015", TopMost = true, ClientSize = Size(320, 240))
 let control = new myControl(Dock = DockStyle.Fill)
+form.MinimumSize <- Size(600, 400)
 form.Controls.Add(control)
 form.Show()

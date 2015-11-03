@@ -222,7 +222,7 @@ type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType)
         constructPath sPoints
 // ---------------------------------------------------------------------------------------------------- //
 // ---------------------------------------------------------------------------------------------------- //
-type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) =
+type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     let size = SizeF(25.f, 25.f)
     let ballPen   = new Pen(Color.DarkBlue)
     let ballBrush = new SolidBrush(Color.Blue)
@@ -232,17 +232,64 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) =
     let mutable fSpeed   = spd
     let mutable lastT    = System.DateTime.Now
 
-    let collideWith (obj: GraphicsObject) =
+    // Ottiene una Region della pallina
+    let getRegion() =
         let gPBall = new Drawing2D.GraphicsPath()
         gPBall.AddEllipse(location.X, location.Y, size.Width, size.Height)
-        let ballRegion = new Region(gPBall)
-        ballRegion.Intersect(obj.GetRegion)
+        new Region(gPBall)
+
+    // Calcola il grado di verità di una collisione con una pallina
+    let collideWithBall (b: Ball) =
+        let bRegion = b.Region()
+        let tRegion = getRegion()
+
+        let (intersect: Region -> unit) = tRegion.Intersect
+        intersect(bRegion)
+
+        tRegion.GetRegionScans(new Drawing2D.Matrix()).Length > 0
+
+    // Calcola il grado di verità di una collisione con un oggetto
+    let collideWithObj (obj: GraphicsObject) =
+        let tRegion = getRegion()
+
+        let (intersect: Drawing2D.GraphicsPath -> unit) = tRegion.Intersect
+        intersect(obj.GraphicsPath)
+
+        tRegion.GetRegionScans(new Drawing2D.Matrix()).Length > 0
+
+    // Calcola il grado di verità di una collisione e restituisce un eventuale indice
+    let collideWith (aObj: ResizeArray<GraphicsObject>) (aBalls: ResizeArray<Ball>) =
+        let mutable collideObj, collideBall = false, false
+        let mutable idxObj,     idxBall     = -1, -1
+
+        // Collisione con la form
+        if (location.X <= 0.f || location.X >= single parent.Width || 
+            location.Y <= 0.f || location.Y >= single parent.Height) then (-1, 2)
+        else
+            // Collisione con oggetti
+            while idxObj < aObj.Count && not collideObj do
+                idxObj     <- idxObj + 1
+                collideObj <- collideWithObj aObj.[idxObj]
+            // Collisione con palline
+            while not collideObj && idxBall < aBalls.Count && not collideBall do
+                idxBall     <- idxBall + 1
+                collideBall <- collideWithBall aBalls.[idxBall]
+
+            // Restituisce (idx, type) con
+            //      type = 0  -> Obj
+            //      type = 1  -> Ball
+            //      type = 2  -> Form
+            //      type = -1 -> Not Found
+            if collideObj then (idxObj, 0)
+            elif collideBall then (idxBall, 1)
+            else (-1, -1)
 
     member this.Location = location
     member this.Speed    = fSpeed
     member this.Bounds   = new RectangleF(location, size)
     member this.BPen     = ballPen
     member this.BBrush   = ballBrush
+    member this.Region() = getRegion()
 
     member this.UpdatePosition =
         // Aggiorna la posizione usando il moto parabolico
