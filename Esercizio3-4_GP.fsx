@@ -228,8 +228,8 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     let ballBrush = new SolidBrush(Color.Blue)
     
     let mutable location = loc
-    let mutable iSpeed   = spd
-    let mutable fSpeed   = spd
+    let mutable iSpeed   = SizeF(spd.Width, spd.Height)
+    let mutable fSpeed   = SizeF(spd.Width, spd.Height)
     let mutable lastT    = System.DateTime.Now
     let mutable lastTf   = System.DateTime.Now
 
@@ -314,7 +314,6 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
                                      else
                                         iSpeed   <- SizeF(fSpeed.Width * 0.3f, - fSpeed.Height * 0.3f)
                                         location <- PointF(location.X, single parent.Height - size.Height)
-                                     printfn "New speed %s" (iSpeed.ToString())
                                      lastT <- lastTf
         | _ -> ()
 
@@ -499,7 +498,7 @@ type VectorControl() as this =
     // Timer scrolling
     let scrollTimer = new Timer(Interval = 30)
     let rotateTimer = new Timer(Interval = 60)
-    let ballsTimer  = new Timer(Interval = 2)
+    let ballsTimer  = new Timer(Interval = 10)
     // Direzione scrolling
     let mutable scrollDir = NavBut.Up
     let mutable rotateDir = NavBut.RLeft
@@ -518,8 +517,8 @@ type VectorControl() as this =
             balls |> Seq.iter (fun b ->
                 b.UpdatePosition
                 b.UpdateSpeed objects balls
-                this.Invalidate()
             )
+            this.Invalidate()
         )
         ballsTimer.Start()
 
@@ -724,7 +723,7 @@ type VectorControl() as this =
 
     override this.OnMouseDown e =
         match editState with
-        | StateEditor.DefaultState                                     -> this.Focus() |> ignore
+        | StateEditor.DefaultState                                     -> ()
         | StateEditor.EditMode                                         -> managingMouseDown e
         | _                         when e.Button = MouseButtons.Left  -> initPoint <- Some (e.Location)
         | _                         when e.Button = MouseButtons.Right -> editState <- StateEditor.DefaultState
@@ -736,11 +735,10 @@ type VectorControl() as this =
         | StateEditor.EditMode      when e.Button = MouseButtons.Right -> ()
         | StateEditor.EditMode      when e.Button = MouseButtons.Left  -> managingMouseMove e
         | _                                                            -> dragPoint <- Some (e.Location)
-        this.Invalidate()
 
     override this.OnMouseUp e =
         match editState with
-        | StateEditor.DefaultState  -> ()
+        | StateEditor.DefaultState  -> this.Focus() |> ignore
         | StateEditor.EditMode      -> managingMouseUp e
         // Aggiungi il rettangolo
         | StateEditor.InsertRectang -> addObject GraphicsObjectType.Rectangle
@@ -751,9 +749,7 @@ type VectorControl() as this =
         // Aggiungi la curva di Bezièr
         | StateEditor.InsertBezier  -> addObject GraphicsObjectType.Bezier
         | StateEditor.InsertBall    -> addBall()
-        // Aggiorna la vista
-        this.Invalidate()
-    
+
     override this.UseBuffer() =
         this.UpdateBuffer()
         let gBCont  = Graphics.FromImage(this.Buffer)
