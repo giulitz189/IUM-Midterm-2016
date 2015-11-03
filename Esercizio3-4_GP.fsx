@@ -58,12 +58,13 @@ type NavBut =
     | RRight = 5
 
 type StateEditor =
-    | FreeTransform = 0
+    | EditMode      = 0
     | InsertCircle  = 1
     | InsertRectang = 2
     | InsertLine    = 3
     | InsertBezier  = 4
-    | DefaultState  = 5
+    | InsertBall    = 5
+    | DefaultState  = 6
 
 // Controllo navigazione ------------------------------------------------------------------------------ //
 type LWCNav(loc: PointF, siz: SizeF, mode: LWCmode, par: Control) =
@@ -165,12 +166,14 @@ type LWCSelector(loc: PointF, siz: SizeF, mode: LWCmode, par: Control, nscolor: 
         gCont.DrawString(text, this.Parent.Font, sBrush, PointF(loc.X + 9.f, loc.Y + 24.f))
 // ---------------------------------------------------------------------------------------------------- //
 
+// ---------------------------------------------------------------------------------------------------- //
 type GraphicsObjectType =
     | Ellipse   = 0
     | Rectangle = 1
     | Line      = 2
     | Bezier    = 3
-
+// ---------------------------------------------------------------------------------------------------- //
+// ---------------------------------------------------------------------------------------------------- //
 type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType) =
     let mutable graphicsPath = new Drawing2D.GraphicsPath()
     let mutable sPoints = points
@@ -191,11 +194,6 @@ type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType)
         | GraphicsObjectType.Bezier    -> ()
 
     let constructPath (points: PointF[]) =
-        let mutable stringToWrite = "Passing points: "
-        points |> Array.iter (fun p ->
-            stringToWrite <- stringToWrite + p.ToString() + " "
-        )
-        printfn "%s" stringToWrite
         if typ = GraphicsObjectType.Bezier then initializeGPathB points
         else initializeGPath (getRectangleF points)
 
@@ -222,7 +220,41 @@ type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType)
         graphicsPath.Dispose()
         graphicsPath <- new Drawing2D.GraphicsPath()
         constructPath sPoints
+// ---------------------------------------------------------------------------------------------------- //
+// ---------------------------------------------------------------------------------------------------- //
+type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) =
+    let size = SizeF(25.f, 25.f)
+    let ballPen   = new Pen(Color.DarkBlue)
+    let ballBrush = new SolidBrush(Color.Blue)
+    
+    let mutable location = loc
+    let mutable speed    = spd
+    let mutable lastT    = System.DateTime.Now
 
+    let collideWith (obj: GraphicsObject) =
+        let gPBall = new Drawing2D.GraphicsPath()
+        gPBall.AddEllipse(location.X, location.Y, size.Width, size.Height)
+        let ballRegion = new Region(gPBall)
+        ballRegion.Intersect(obj.GetRegion)
+
+    member this.Location = location
+    member this.Speed    = speed
+    member this.Bounds   = new RectangleF(location, size)
+    member this.BPen     = ballPen
+    member this.BBrush   = ballBrush
+
+    member this.UpdatePosition =
+        let t  = System.DateTime.Now
+        let dt = single (t - lastT).TotalSeconds
+        let vx = speed.Width / 2.f
+        let vy = speed.Height / 2.f
+        let x = - vx * dt
+        let y = - (vy * dt) + ((5.f * (dt*dt)) / 2.f)
+        location <- new PointF(location.X + x, location.Y + y)
+    
+// ---------------------------------------------------------------------------------------------------- //
+// ---------------------------------------------------------------------------------------------------- //
+// Specifica il tipo di selezione in un drag&drop
 type Selection =
     | Handlers = 0
     | Graphics = 1
@@ -235,8 +267,8 @@ type VectorControl() as this =
     let mutable (editState: StateEditor) = StateEditor.DefaultState
 
     // Oggetti da disegnare
-    //let objects = new ResizeArray<PointF[] * string * float32>()
     let objects = new ResizeArray<GraphicsObject>()
+    let balls   = new ResizeArray<Ball>()
     // Grandezza penna per la drawing
     let mutable sizePen = 1.f
 
@@ -319,19 +351,17 @@ type VectorControl() as this =
 
     // Trasla una primitiva grafica selezionata in edit mode
     let editTranslateTo (key: Keys) =
-        match objSelected with
-        | None     -> ()
-        | Some obj -> 
-            let mutable vectorTranslation = PointF(0.f, 0.f)
+        let obj = objects.[objects.Count - 1]
+        let mutable vectorTranslation = PointF(0.f, 0.f)
 
-            (match key with
-             | Keys.W -> vectorTranslation <- PointF(0.f, -10.f)
-             | Keys.A -> vectorTranslation <- PointF(-10.f, 0.f)
-             | Keys.S -> vectorTranslation <- PointF(0.f, 10.f)
-             | Keys.D -> vectorTranslation <- PointF(10.f, 0.f)
-             | _      -> ())
+        (match key with
+         | Keys.W -> vectorTranslation <- PointF(0.f, -10.f)
+         | Keys.A -> vectorTranslation <- PointF(-10.f, 0.f)
+         | Keys.S -> vectorTranslation <- PointF(0.f, 10.f)
+         | Keys.D -> vectorTranslation <- PointF(10.f, 0.f)
+         | _      -> ())
 
-            obj.TranslateTo vectorTranslation
+        obj.TranslateTo vectorTranslation
             
     // Stringe/allarga una primitiva grafica selezionata in edit mode
     let editScaleTo (k: Keys) =
@@ -343,44 +373,44 @@ type VectorControl() as this =
         // Traslazione
         | Keys.W -> if editState = StateEditor.DefaultState then scrollBy NavBut.Up |> Translate
                     // Muove l'elemento selezionato in edit mode in su
-                    elif editState = StateEditor.FreeTransform then
+                    elif editState = StateEditor.EditMode then
                         editTranslateTo k
                     this.Invalidate()
         | Keys.A -> if editState = StateEditor.DefaultState then scrollBy NavBut.Left |> Translate
                     // Muove l'elemento selezionato in edit mode a sinistra
-                    elif editState = StateEditor.FreeTransform then
+                    elif editState = StateEditor.EditMode then
                         editTranslateTo k
                     this.Invalidate()
         | Keys.S -> if editState = StateEditor.DefaultState then scrollBy NavBut.Down |> Translate
                     // Muove l'elemento selezionato in edit mode in basso
-                    elif editState = StateEditor.FreeTransform then
+                    elif editState = StateEditor.EditMode then
                         editTranslateTo k
                     this.Invalidate()
         | Keys.D -> if editState = StateEditor.DefaultState then scrollBy NavBut.Right |> Translate
                     // Muove l'elemento selezionato in edit mode a destra
-                    elif editState = StateEditor.FreeTransform then
+                    elif editState = StateEditor.EditMode then
                         editTranslateTo k
                     this.Invalidate()
         // Rotazione
-        | Keys.Q -> if editState = StateEditor.FreeTransform then ()
+        | Keys.Q -> if editState = StateEditor.EditMode then ()
                     else RotateAtW (rotateBy NavBut.RLeft)
                     this.Invalidate()
-        | Keys.E -> if editState = StateEditor.FreeTransform then ()
+        | Keys.E -> if editState = StateEditor.EditMode then ()
                     else RotateAtW (rotateBy NavBut.RRight)
                     this.Invalidate()
         // Scalatura
-        | Keys.Z -> if editState = StateEditor.FreeTransform then () // editScaleTo k
+        | Keys.Z -> if editState = StateEditor.EditMode then () // editScaleTo k
                     else
                         let pScale = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
                         ScaleW(1.1f, 1.1f)
                     this.Invalidate()
-        | Keys.X -> if editState = StateEditor.FreeTransform then () // editScaleTo k
+        | Keys.X -> if editState = StateEditor.EditMode then () // editScaleTo k
                     else
                         let pScale = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
                         ScaleW(1.f/1.1f, 1.f/1.1f)
                     this.Invalidate()
         // Rimuove in edit mode
-        | Keys.R when editState = StateEditor.FreeTransform ->
+        | Keys.R when editState = StateEditor.EditMode ->
             (match objSelected with
             | None   -> ()
             | Some _ -> objSelected <- None; idxSelected <- None; idxPointer <- -1; this.Invalidate())
@@ -389,6 +419,7 @@ type VectorControl() as this =
     // Timer scrolling
     let scrollTimer = new Timer(Interval = 30)
     let rotateTimer = new Timer(Interval = 60)
+    let ballsTimer  = new Timer(Interval = 17)
     // Direzione scrolling
     let mutable scrollDir = NavBut.Up
     let mutable rotateDir = NavBut.RLeft
@@ -402,6 +433,14 @@ type VectorControl() as this =
             rotateBy rotateDir |> RotateAtW
             this.Invalidate()
         )
+
+        ballsTimer.Tick.Add(fun _ ->
+            balls |> Seq.iter (fun b ->
+                b.UpdatePosition
+                this.Invalidate()
+            )
+        )
+        ballsTimer.Start()
 
     // Drag & drop
     let mutable (initPoint: Point option) = None
@@ -546,7 +585,26 @@ type VectorControl() as this =
         | _ -> ()
 
         mouseState <- Selection.Nothing
-            
+        
+    let addBall() =
+        match initPoint, dragPoint with
+        | Some ip, Some dp ->
+            let ipF, dpF  = PointF(single ip.X, single ip.Y), PointF(single dp.X, single dp.Y)
+            let dpForTest = TransformPW this.V2W dp 
+            let mutable invalidStart = false
+
+            objects |> Seq.iter (fun obj ->
+                invalidStart <- invalidStart || handleHitTestG dpForTest obj
+            )
+
+            if not invalidStart then
+                let speed = SizeF(dpF.X - ipF.X, dpF.Y - ipF.Y)
+                balls.Add(new Ball(dpF, speed, this))
+
+            initPoint <- None; dragPoint <- None
+
+        | _, _ -> ()
+        editState <- StateEditor.DefaultState
 
     // Grandezza della penna
     member this.SizePen with get() = sizePen and set(v) = sizePen <- v
@@ -586,7 +644,7 @@ type VectorControl() as this =
     override this.OnMouseDown e =
         match editState with
         | StateEditor.DefaultState                                     -> this.Focus() |> ignore
-        | StateEditor.FreeTransform                                    -> managingMouseDown e
+        | StateEditor.EditMode                                         -> managingMouseDown e
         | _                         when e.Button = MouseButtons.Left  -> initPoint <- Some (e.Location)
         | _                         when e.Button = MouseButtons.Right -> editState <- StateEditor.DefaultState
         | _                                                            -> ()
@@ -594,15 +652,15 @@ type VectorControl() as this =
     override this.OnMouseMove e =
         match editState with
         | StateEditor.DefaultState                                     -> ()
-        | StateEditor.FreeTransform when e.Button = MouseButtons.Right -> ()
-        | StateEditor.FreeTransform when e.Button = MouseButtons.Left  -> managingMouseMove e
+        | StateEditor.EditMode      when e.Button = MouseButtons.Right -> ()
+        | StateEditor.EditMode      when e.Button = MouseButtons.Left  -> managingMouseMove e
         | _                                                            -> dragPoint <- Some (e.Location)
         this.Invalidate()
 
     override this.OnMouseUp e =
         match editState with
         | StateEditor.DefaultState  -> ()
-        | StateEditor.FreeTransform -> managingMouseUp e
+        | StateEditor.EditMode      -> managingMouseUp e
         // Aggiungi il rettangolo
         | StateEditor.InsertRectang -> addObject GraphicsObjectType.Rectangle
         // Aggiungi il cerchio
@@ -611,6 +669,7 @@ type VectorControl() as this =
         | StateEditor.InsertLine    -> addObject GraphicsObjectType.Line
         // Aggiungi la curva di Bezièr
         | StateEditor.InsertBezier  -> addObject GraphicsObjectType.Bezier
+        | StateEditor.InsertBall    -> addBall()
         // Aggiorna la vista
         this.Invalidate()
     
@@ -642,7 +701,7 @@ type VectorControl() as this =
             else
                 gCont.FillPath(Brushes.Red, obj.GraphicsPath)
 
-            if editState = StateEditor.FreeTransform then drawHandlesR gCont obj
+            if editState = StateEditor.EditMode then drawHandlesR gCont obj
         )
 
         // Disegna dragging
@@ -654,15 +713,21 @@ type VectorControl() as this =
             else
                 gCont.FillPath(Brushes.Red, obj.GraphicsPath)
 
-            if editState = StateEditor.FreeTransform then drawHandlesR gCont obj
+            if editState = StateEditor.EditMode then drawHandlesR gCont obj
         | None -> ()
+
+        gCont.Restore(gSave)
+
+        balls |> Seq.iter (fun b ->
+            gCont.FillEllipse(b.BBrush, b.Bounds)
+            gCont.DrawEllipse(b.BPen, b.Bounds)
+        )
 
         // Disegno roba intermedia
         match initPoint, dragPoint with
         | Some ip, Some dp -> gCont.DrawLine(drawIPen, ip, dp)
         | _, _ -> ()
 
-        gCont.Restore(gSave)
         base.OnPaint e
 // ---------------------------------------------------------------------------------------------------- //
 
@@ -671,7 +736,7 @@ type myTextBox() as this =
     inherit TextBox()
 
     do
-        this.Location <- Point(20, 480)
+        this.Location <- Point(20, 560)
         this.Size     <- Size(60, 20)
         this.Text     <- "1"
 
@@ -689,7 +754,8 @@ type DockControl(vectsheet: VectorControl) as this =
                      new LWCSelector(PointF(20.f, 180.f), SizeF(60.f, 60.f), LWCmode.ViewMode, this, Color.FromArgb(0xBA, 0xDB, 0xAD), Color.FromArgb(0xA7, 0xC5, 0x9B));
                      new LWCSelector(PointF(20.f, 260.f), SizeF(60.f, 60.f), LWCmode.ViewMode, this, Color.FromArgb(0xC6, 0xE0, 0xFF), Color.FromArgb(0xB2, 0xC9, 0xE5));
                      new LWCSelector(PointF(20.f, 340.f), SizeF(60.f, 60.f), LWCmode.ViewMode, this, Color.FromArgb(0xB3, 0x78, 0x85), Color.FromArgb(0xA1, 0x6C, 0x77));
-                     new LWCSelector(PointF(30.f, 420.f), SizeF(40.f, 40.f), LWCmode.ViewMode, this, Color.FromArgb(0x46, 0x46, 0xDA), Color.FromArgb(0x3F, 0x3F, 0xC4)) |]
+                     new LWCSelector(PointF(20.f, 420.f), SizeF(60.f, 60.f), LWCmode.ViewMode, this, Color.FromArgb(0xF1, 0xF1, 0xF1), Color.FromArgb(0xD8, 0xD8, 0xD8));
+                     new LWCSelector(PointF(30.f, 500.f), SizeF(40.f, 40.f), LWCmode.ViewMode, this, Color.FromArgb(0x46, 0x46, 0xDA), Color.FromArgb(0x3F, 0x3F, 0xC4)) |]
     // Bottoni di navigazione
     let navbuts = [| new LWCNav(PointF(38.f, 20.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "U");
                      new LWCNav(PointF(18.f, 40.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "L");
@@ -714,7 +780,8 @@ type DockControl(vectsheet: VectorControl) as this =
         buttons.[1].Text <- "Rectangle"
         buttons.[2].Text <- "Line"
         buttons.[3].Text <- "Bezièr"
-        buttons.[4].Text <- "ED"
+        buttons.[4].Text <- "Ball"
+        buttons.[5].Text <- "ED"
 
         // Registra gli eventi per i tasti editor
         buttons.[0].MouseDown.Add(fun _ -> vectsheet.EditorState <- StateEditor.InsertCircle)
@@ -733,12 +800,13 @@ type DockControl(vectsheet: VectorControl) as this =
             else vectsheet.SizePen <- 1.f
             vectsheet.EditorState <- StateEditor.InsertBezier
         )
-        buttons.[4].MouseDown.Add(fun _ ->
-            if vectsheet.EditorState = StateEditor.FreeTransform then
+        buttons.[4].MouseDown.Add(fun _ -> vectsheet.EditorState <- StateEditor.InsertBall)
+        buttons.[5].MouseDown.Add(fun _ ->
+            if vectsheet.EditorState = StateEditor.EditMode then
                 vectsheet.ResetState
                 vectsheet.EditorState <- StateEditor.DefaultState
             else
-                vectsheet.EditorState <- StateEditor.FreeTransform
+                vectsheet.EditorState <- StateEditor.EditMode
             vectsheet.Invalidate()
         )
 
@@ -785,7 +853,7 @@ let vectForm = new VectorControl(Dock = DockStyle.Fill)
 let dockForm = new DockControl(vectForm, Dock = DockStyle.Left)
 
 // Grandezza minima della form
-myForm.MinimumSize <- Size(1280, 840)
+myForm.MinimumSize <- Size(1024, 620)
 myForm.Controls.Add(vectForm)
 myForm.Controls.Add(dockForm)
 myForm.Show()
