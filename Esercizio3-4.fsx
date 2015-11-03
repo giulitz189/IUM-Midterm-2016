@@ -31,8 +31,9 @@
     e l'eliminazione di una primitiva col tasto destro.
 
     Nello stato FreeTransform, l'editor permette di modificare i punti di disegno delle
-    primitive col tasto sinistro sull'handler; il tasto destro riporta l'editor
-    nello stato di default.
+    primitive col tasto sinistro sull'handler; selezionando il tasto ED dal dock in questo stato,
+    permette di tornare allo stato di default, MoveThings.
+
     Con il WASD è possibile muovere la primitiva grafica per ultimo selezionata (tramite handlers),
     mentre con la R è rimuovibile.
 
@@ -49,10 +50,12 @@ open System.Text.RegularExpressions
 open libLWCs
 
 type NavBut =
-    | Up    = 0
-    | Left  = 1
-    | Down  = 2
-    | Right = 3
+    | Up     = 0
+    | Left   = 1
+    | Down   = 2
+    | Right  = 3
+    | RLeft  = 4
+    | RRight = 5
 
 type StateEditor =
     | FreeTransform = 0
@@ -162,6 +165,26 @@ type LWCSelector(loc: PointF, siz: SizeF, mode: LWCmode, par: Control, nscolor: 
         gCont.DrawString(text, this.Parent.Font, sBrush, PointF(loc.X + 9.f, loc.Y + 24.f))
 // ---------------------------------------------------------------------------------------------------- //
 
+type GraphicsObjectType =
+    | Ellipse   = 0
+    | Rectangle = 1
+    | Line      = 2
+    | Bezier    = 3
+
+type GraphicsObject(points: PointF[], sizePen: PointF, typ: GraphicsObjectType) =
+    let mutable graphicsPath = new Drawing2D.GraphicsPath()
+
+    do  
+        match typ with
+        | GraphicsObjectType.Ellipse   -> graphicsPath.AddEllipse(points.[0].X, points.[0].Y, points.[1].X - points.[0].X, points.[1].Y - points.[0].Y)
+        | GraphicsObjectType.Rectangle -> graphicsPath.AddRectangle(new RectangleF(points.[0], SizeF(points.[1].X - points.[0].X, points.[1].Y - points.[0].Y)))
+        | GraphicsObjectType.Line      -> graphicsPath.AddLine(points.[0], points.[1])
+        | GraphicsObjectType.Bezier    -> graphicsPath.AddBezier(points.[0], points.[1], points.[2], points.[3])
+
+    member this.SizePen      = sizePen
+    member this.GraphicsPath = graphicsPath
+    member this.GetRegion    = new Region(graphicsPath)
+
 // ---------------------------------------------------------------------------------------------------- //
 type VectorControl() as this =
     inherit LWCcontainer()
@@ -169,9 +192,10 @@ type VectorControl() as this =
     let mutable (editState: StateEditor) = StateEditor.MoveThings
 
     // Oggetti da disegnare
-    let objects = new ResizeArray<PointF[] * string * float32>()
+    //let objects = new ResizeArray<PointF[] * string * float32>()
+    let objects = new ResizeArray<GraphicsObject>()
     // Grandezza penna per la drawing
-    let mutable sizePen = 1
+    let mutable sizePen = 1.f
 
     // Funzioni di traslazione -------------------------------------- //
     let TranslateW (tX, tY) =
@@ -185,7 +209,7 @@ type VectorControl() as this =
     // -------------------------------------------------------------- //
 
     // Funzione di rotazione attorno ad un punto
-    let RotateAtW point angle =
+    let RotateAtW (point, angle) =
         this.W2V.RotateAt(angle, point)
         this.V2W.RotateAt(-angle, point, Drawing2D.MatrixOrder.Append)
 
@@ -208,9 +232,16 @@ type VectorControl() as this =
         | NavBut.Left  -> (-10.f, 0.f)
         | NavBut.Right -> (10.f,  0.f)
 
+    // Vettore per la rotazione
+    let rotateBy dir =
+        let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
+        match dir with
+        | NavBut.RLeft  -> (p, -10.f)
+        | NavBut.RRight -> (p, 10.f)
+
     // Oggetto selezionato
-    let mutable (idxSelected: int option)                           = None
-    let mutable (objSelected: (PointF[] * string * float32) option) = None
+    let mutable (idxSelected: int option)            = None
+    let mutable (objSelected: GraphicsObject option) = None
     // Punti di riferimento per il drag&drop
     let mutable startDragging  = PointF()
     let mutable offsetDragging = PointF()
@@ -246,8 +277,8 @@ type VectorControl() as this =
     // Trasla una primitiva grafica selezionata in edit mode
     let editTranslateTo (k: Keys) =
         match objSelected with
-        | None -> ()
-        | Some (p, id, sz) ->
+        | None     -> ()
+        | Some obj ->
             let mutable factorX = 0.f
             let mutable factorY = 0.f
 
@@ -269,10 +300,10 @@ type VectorControl() as this =
             //    let newPoint3 = PointF(p.[3].X + factorX, p.[3].Y + factorY)
             //    let newPoints = [| newPoint0; newPoint1; newPoint2; newPoint3 |]
             //    objSelected <- Some (newPoints, id, sz)
-            if id = "line" then objSelected <- Some (constructionLineF newPoint0 newPoint1, id, sz)
+            if   id = "line" then objSelected <- Some (constructionLineF newPoint0 newPoint1, id, sz)
             elif id = "bezi" then
-                let newPoint2 = PointF(p.[0].X + factorX, p.[0].Y + factorY)
-                let newPoint3 = PointF(p.[1].X + factorX, p.[1].Y + factorY)
+                let newPoint2 = PointF(p.[2].X + factorX, p.[2].Y + factorY)
+                let newPoint3 = PointF(p.[3].X + factorX, p.[3].Y + factorY)
                 let newPoints = [| newPoint0; newPoint1; newPoint2; newPoint3 |]
                 objSelected <- Some (newPoints, id, sz)
             else objSelected <- Some (constructionPointsF newPoint0 newPoint1, id, sz)
@@ -327,14 +358,10 @@ type VectorControl() as this =
                     this.Invalidate()
         // Rotazione
         | Keys.Q -> if editState = StateEditor.FreeTransform then ()
-                    else
-                        let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
-                        RotateAtW p 10.f
+                    else RotateAtW (rotateBy NavBut.RLeft)
                     this.Invalidate()
         | Keys.E -> if editState = StateEditor.FreeTransform then ()
-                    else
-                        let p = TransformPW this.V2W (Point(this.Width / 2, this.Height / 2))
-                        RotateAtW p -10.f
+                    else RotateAtW (rotateBy NavBut.RRight)
                     this.Invalidate()
         // Scalatura
         | Keys.Z -> if editState = StateEditor.FreeTransform then () // editScaleTo k
@@ -356,11 +383,18 @@ type VectorControl() as this =
 
     // Timer scrolling
     let scrollTimer = new Timer(Interval = 30)
+    let rotateTimer = new Timer(Interval = 60)
     // Direzione scrolling
     let mutable scrollDir = NavBut.Up
+    let mutable rotateDir = NavBut.RLeft
     do
         scrollTimer.Tick.Add(fun _ ->
             scrollBy scrollDir |> Translate
+            this.Invalidate()
+        )
+
+        rotateTimer.Tick.Add(fun _ ->
+            rotateBy rotateDir |> RotateAtW
             this.Invalidate()
         )
 
@@ -368,11 +402,12 @@ type VectorControl() as this =
     let mutable (initPoint: Point option) = None
     let mutable (dragPoint: Point option) = None
 
-    let addObject (s: string) =
+    let addObject (typ: GraphicsObjectType) =
         match initPoint, dragPoint with
-        | Some ip, Some dp -> let points = if s = "line" then constructionLine ip dp else constructionPoints ip dp
+        | Some ip, Some dp -> let points = if typ = GraphicsObjectType.Line then constructionLine ip dp 
+                                                                            else constructionPoints ip dp
                               this.V2W.TransformPoints(points)
-                              objects.Add((points, s, single sizePen))
+                              objects.Add(new GraphicsObject.Add(points, typ))
                               initPoint <- None
                               dragPoint <- None
         | _, _ -> ()
@@ -475,10 +510,22 @@ type VectorControl() as this =
     // Pressione tasto navigazione Right
     member this.PressedRight   = scrollDir <- NavBut.Right; scrollTimer.Start()
     member this.UnPressedRight = scrollTimer.Stop()
+    // Pressione tasto navigazione RLeft
+    member this.PressedRLeft   = rotateDir <- NavBut.RLeft; rotateTimer.Start()
+    member this.UnPressedRLeft = rotateTimer.Stop()
+    // Pressione tasto navigazione RRight
+    member this.PressedRRight   = rotateDir <- NavBut.RRight; rotateTimer.Start()
+    member this.UnPressedRRight = rotateTimer.Stop()
 
     // Stato interno dell'editor
     member this.EditorState with get() = editState and set(v) = editState <- v
     member this.Objects = objects
+
+    member this.ResetState =
+        if objSelected.IsSome then
+            objects.Add(objSelected.Value)
+            objSelected <- None
+            idxSelected <- None
 
     override this.OnKeyDown e =
         handleKeys e.KeyCode
@@ -495,6 +542,7 @@ type VectorControl() as this =
             // Segna l'elemento trovato come elemento selezionato e rimuovi dalla collezione
             | Some v -> objSelected <- Some objects.[v]; objects.RemoveAt(v)
             | None   -> ())
+            if objSelected.IsSome then printfn "Object selected: %s" (objSelected.Value.ToString())
             // Se premo tasto sinistro, drag&drop, destro elimina l'oggetto
             if e.Button = MouseButtons.Left then
                 (match objSelected with
@@ -517,6 +565,7 @@ type VectorControl() as this =
             | Some (p, s, sz) -> idxPointer     <- getIdxHit mPoint p
                                  offsetDragging <- PointF(p.[idxPointer].X - mPoint.X, p.[idxPointer].Y - mPoint.Y) 
             | None            -> ())
+        | StateEditor.FreeTransform when e.Button = MouseButtons.Right -> this.Focus() |> ignore
         | _                         when e.Button = MouseButtons.Left  -> initPoint <- Some (e.Location)
         | _                         when e.Button = MouseButtons.Right -> editState <- StateEditor.MoveThings
         | _                                                            -> ()
@@ -584,12 +633,7 @@ type VectorControl() as this =
     override this.OnPaint e =
         let gCont = this.UseBuffer()
         let gSave = gCont.Save()
-        let drawIPen = new Pen(Color.Red, single sizePen)
-
-        // Disegno roba intermedia
-        match initPoint, dragPoint with
-        | Some ip, Some dp -> gCont.DrawLine(drawIPen, ip, dp)
-        | _, _ -> ()
+        let drawIPen = new Pen(Color.Green, sizePen)
 
         gCont.Transform <- this.W2V
         // Disegna gli oggetti
@@ -622,10 +666,16 @@ type VectorControl() as this =
                                                if editState = StateEditor.FreeTransform then drawHandlesR gCont p
         | _ -> ()
 
+        // Disegno roba intermedia
+        match initPoint, dragPoint with
+        | Some ip, Some dp -> gCont.DrawLine(drawIPen, ip, dp)
+        | _, _ -> ()
+
         gCont.Restore(gSave)
         base.OnPaint e
 // ---------------------------------------------------------------------------------------------------- //
 
+// Fantastica TextBox per la size della pen ----------------------------------------------------------- //
 type myTextBox() as this =
     inherit TextBox()
 
@@ -635,8 +685,9 @@ type myTextBox() as this =
         this.Text     <- "1"
 
     override this.OnTextChanged e =
-        if this.Text = "" then this.Text <- "1"
+        if this.Text = "" then this.Text <- "1.0"
         base.OnTextChanged e
+// ---------------------------------------------------------------------------------------------------- //
 
 // Dock per i tasti comando --------------------------------------------------------------------------- //
 type DockControl(vectsheet: VectorControl) as this =
@@ -652,7 +703,9 @@ type DockControl(vectsheet: VectorControl) as this =
     let navbuts = [| new LWCNav(PointF(38.f, 20.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "U");
                      new LWCNav(PointF(18.f, 40.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "L");
                      new LWCNav(PointF(38.f, 60.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "D");
-                     new LWCNav(PointF(58.f, 40.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "R"); |]
+                     new LWCNav(PointF(58.f, 40.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "R");
+                     new LWCNav(PointF(10.f, 10.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "Z");
+                     new LWCNav(PointF(66.f, 10.f), SizeF(20.f, 20.f), LWCmode.ViewMode, this, Text = "X") |]
 
     let textBox = new myTextBox()
 
@@ -677,20 +730,21 @@ type DockControl(vectsheet: VectorControl) as this =
         buttons.[1].MouseDown.Add(fun _ -> vectsheet.EditorState <- StateEditor.InsertRectang)
         buttons.[2].MouseDown.Add(fun _ ->
             let gotFromTBox = textBox.Text
-            let intFromTBox = System.Int32.Parse(gotFromTBox)
-            if intFromTBox > 0 then vectsheet.SizePen <- intFromTBox
-            else vectsheet.SizePen <- 1
+            let floatFromTB = System.Single.Parse(gotFromTBox)
+            if floatFromTB > 0.f then vectsheet.SizePen <- floatFromTB
+            else vectsheet.SizePen <- 1.f
             vectsheet.EditorState <- StateEditor.InsertLine
         )
         buttons.[3].MouseDown.Add(fun _ -> 
             let gotFromTBox = textBox.Text
-            let intFromTBox = System.Int32.Parse(gotFromTBox)
-            if intFromTBox > 0 then vectsheet.SizePen <- intFromTBox
-            else vectsheet.SizePen <- 1
+            let floatFromTB = System.Single.Parse(gotFromTBox)
+            if floatFromTB > 0.f then vectsheet.SizePen <- floatFromTB
+            else vectsheet.SizePen <- 1.f
             vectsheet.EditorState <- StateEditor.InsertBezier
         )
         buttons.[4].MouseDown.Add(fun _ ->
             if vectsheet.EditorState = StateEditor.FreeTransform then
+                vectsheet.ResetState
                 vectsheet.EditorState <- StateEditor.MoveThings
             else
                 vectsheet.EditorState <- StateEditor.FreeTransform
@@ -709,6 +763,12 @@ type DockControl(vectsheet: VectorControl) as this =
 
         navbuts.[int(NavBut.Right)].MouseDown.Add(fun _ -> vectsheet.PressedRight)
         navbuts.[int(NavBut.Right)].MouseUp.Add(fun _ -> vectsheet.UnPressedRight)
+
+        navbuts.[int(NavBut.RLeft)].MouseDown.Add(fun _ -> vectsheet.PressedRLeft)
+        navbuts.[int(NavBut.RLeft)].MouseUp.Add(fun _ -> vectsheet.UnPressedRLeft)
+
+        navbuts.[int(NavBut.RRight)].MouseDown.Add(fun _ -> vectsheet.PressedRRight)
+        navbuts.[int(NavBut.RRight)].MouseUp.Add(fun _ -> vectsheet.UnPressedRRight)
 
     override this.OnMouseDown e =
         base.OnMouseDown e
