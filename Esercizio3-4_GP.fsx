@@ -17,31 +17,35 @@
     In particolare, avremo 6 stati differenti:
 
         type StateEditor =
-            | FreeTransform = 0 -> abilita modifiche alle primitive
+            | EditMode      = 0 -> abilita modifiche alle primitive (drag&drop, handlers, rimozione)
             | InsertCircle  = 1 -> inserisce un ellisse ("circle" è frutto di sbadataggine)
             | InsertRectang = 2 -> inserisce un rettangolo
             | InsertLine    = 3 -> inserisce una linea
             | InsertBezier  = 4 -> inserisce una curva di Bezièr
-            | MoveThings    = 5 -> stato default: drag&drop ed eliminazione di primitive
+            | DefaultState  = 5 -> stato default
 
-        N.B. il drag&drop e l'eliminazione non sono supportate per le curve di Bezièr in MoveThings
-             (ho avuto problemi con lo hitTest), solo l'eliminazione in FreeTransform tramite tasto R.
-
-    Nello stato MoveThings, l'editor permette il drag&drop col tasto sinistro del mouse,
-    e l'eliminazione di una primitiva col tasto destro.
-
-    Nello stato FreeTransform, l'editor permette di modificare i punti di disegno delle
+    Nello stato EditMode, l'editor permette il drag&drop col tasto sinistro del mouse,
+    e l'eliminazione di una primitiva col tasto destro, di modificare i punti di disegno delle
     primitive col tasto sinistro sull'handler; selezionando il tasto ED dal dock in questo stato,
-    permette di tornare allo stato di default, MoveThings.
-
-    Con il WASD è possibile muovere la primitiva grafica per ultimo selezionata (tramite handlers),
-    mentre con la R è rimuovibile.
+    permette di tornare allo stato di default, DefaultState.
 
     I comandi da tastiera sono gli stessi utilizzati nel Curve Editor dell'Esercizio 2, a sua
     volta gli stessi utilizzati nel Curve Editor visto a lezione.
 
     L'editor implementa il double buffering: nessun flickering.
 
+    Il moto delle palline è parabolico, e possono essere messe in moto tramite drag&drop.
+    La collisione con palline e oggetti è determinata grazie alle Region(), tranne che per le linee.
+    Nella gestione delle collisioni, viene calcolata la nuova velocità in base al punto centrale della pallina
+    e al punto di collisione (vengono usati metodi diversi per palline, linee e altri oggetti).
+
+    Nel caso di una collisione, viene calcolata la nuova velocità e ripristinata la posizione precedente alla collisione
+    (andrebbe aggiunta l'interpolazione tra posizione attuale e posizione precedente).
+
+    N.B. Nel caso della linea, il test la vede come fosse una retta, dunque trova collisioni con il segmento dove
+         invece non dovrebbero esserci.
+
+         In generale, la collision detection implementata è pesante e fa schifo, ma ci ho provato!
 *)
 
 open System.Windows.Forms
@@ -210,6 +214,11 @@ type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType)
                      graphicsPath <- new Drawing2D.GraphicsPath()
                      constructPath sPoints
 
+    member this.HandlersV (mtx: Drawing2D.Matrix) =
+        let handlers = this.Handlers
+        mtx.TransformPoints(handlers)
+        handlers
+
     member this.TranslateTo (p: PointF) =
         // Punti correnti della primitiva
         let transformationMatrix = new Drawing2D.Matrix()
@@ -220,6 +229,24 @@ type GraphicsObject(points: PointF[], sizePen: float32, typ: GraphicsObjectType)
         graphicsPath.Dispose()
         graphicsPath <- new Drawing2D.GraphicsPath()
         constructPath sPoints
+
+    member this.GraphicsPathV (mtx: Drawing2D.Matrix) =
+        let graphicsPathV = new Drawing2D.GraphicsPath()
+        let pointsV = sPoints
+        mtx.TransformPoints(pointsV)
+        
+        match typ with
+        | GraphicsObjectType.Ellipse   -> 
+            graphicsPathV.AddEllipse(pointsV.[0].X, pointsV.[0].Y, pointsV.[1].X - pointsV.[0].X, pointsV.[1].Y - pointsV.[0].Y)
+        | GraphicsObjectType.Rectangle ->
+            graphicsPathV.AddRectangle(new RectangleF(pointsV.[0].X, pointsV.[0].Y, pointsV.[1].X - pointsV.[0].X, pointsV.[1].Y - pointsV.[0].Y))
+        | GraphicsObjectType.Line      ->
+            graphicsPathV.AddLine(pointsV.[0], pointsV.[1])
+        | GraphicsObjectType.Bezier    ->
+            graphicsPathV.AddBezier(pointsV.[0], pointsV.[2], pointsV.[1], pointsV.[3])
+
+        graphicsPathV
+
 // ---------------------------------------------------------------------------------------------------- //
 // ---------------------------------------------------------------------------------------------------- //
 type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
@@ -252,8 +279,10 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
         let cy  = location.Y + 12.5f
         let rad = 12.5f
 
-        let point1 = obj.Handlers.[0]
-        let point2 = obj.Handlers.[1]
+        let points = obj.Handlers
+        parent.W2V.TransformPoints(obj.Handlers)
+
+        let point1, point2 = points.[0], points.[1]
 
         let dx = point2.X - point1.X
         let dy = point2.Y - point1.Y
@@ -310,7 +339,8 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
             let mutable p1, p2 = PointF(), PointF()
             collideWithLine obj (&p1) (&p2)
         else
-            let tRegion = getRegion()
+            let tRegion   = getRegion()
+            let objRegion = new Region(obj.GraphicsPath)
 
             let (intersect: Drawing2D.GraphicsPath -> unit) = tRegion.Intersect
             intersect(obj.GraphicsPath)
@@ -385,7 +415,7 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
                     let tRegion = getRegion()
                     tRegion.Intersect(aObj.[idx].GraphicsPath)
 
-                    let rects = tRegion.GetRegionScans(new Drawing2D.Matrix())
+                    let rects = tRegion.GetRegionScans(parent.W2V)
                     rects.[rects.Length / 2]
                 
                 collisionPoint <-

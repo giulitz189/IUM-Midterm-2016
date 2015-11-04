@@ -3,24 +3,21 @@
     Esercizio 1
 
         Avendo delle funzioni di interpolazione (es. easeInQuad, prese da http://gizma.com/easing) possiamo calcolare
-        i valori intermedi dato una posizione finale desiderata per l'oggetto da animare.
+        i valori intermedi data una matrice finale desiderata per l'oggetto da animare.
 
-        Ogni oggetto, rappresentato qui come GameObject(), avrà la sua matrice di trasformazione affine.
-        Quindi, nell'evento Paint, basterà prendere come riferimento la matrice di trasformazione affine dell'oggetto
+        Ogni oggetto, rappresentato qui come GameObject(), avrà la sua matrice di trasformazione affine iniziale, ed una
+        matrice di trasformazione affine attuale (ne descrive l'attuale posizione).
+        Quindi, nell'evento Paint, basterà prendere come riferimento la matrice di trasformazione affine attuale dell'oggetto
         da disegnare e passare i boundings dell'oggetto spesso (come visto a lezione), per poi ripristinare il contesto
         grafico.
         
-        Nell'oggetto GameObject() ho incluso anche il metodo di interpolazione che lavora sulla matrice di trasformazione:
-        il metodo calcola il nuovo valore (della componente X in questo caso) grazie alla funzione di interpolazione, ed
-        applica una traslazione alla matrice di una quantità
-
-                        newValue - offsetValue      (newValue: valore appena calcolato dalla funzione di interpolazione)
-                                                    (offsetValue: coefficiente di traslazione della matrice di trasformazione)
+        Nell'oggetto GameObject() vi è il metodo di interpolazione che lavora su matrici di trasformazione:
+        il metodo calcola i nuovi valori della matrice attuale grazie alla funzione di interpolazione, sulla base della
+        matrice iniziale, una matrice finale (keyframe) e la matrice attuale dell'oggetto.
 
         In questo script viene utilizzato un timer, che inizia con la pressione del tasto A, che permette di iniziare
         l'animazione, salvando il tempo di inizio alla pressione del tasto, e ad ogni Tick calcola il tempo corrente;
         la differenza in millisecondi viene passata all'oggetto da animare, mentre la durata è impostata a 600ms.
-
 *)
 
 open System.Windows.Forms
@@ -144,7 +141,7 @@ type myControl() as this =
 
 // ------------------------------------------------------------------------------------------------------ //
 
-let form = new Form(Text = "Esercizio 1 - IUM Midterm 2015", TopMost = true, ClientSize = Size(320, 240))
+let form = new Form(Text = "Esercizio 1 - IUM Midterm 2015", TopMost = true)
 let control = new myControl(Dock = DockStyle.Fill)
 form.MinimumSize <- Size(600, 400)
 form.Controls.Add(control)
