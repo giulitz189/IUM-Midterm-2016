@@ -228,6 +228,7 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     let ballBrush = new SolidBrush(Color.Blue)
     
     let mutable location = loc
+    let mutable lastLoc  = loc
     let mutable iSpeed   = SizeF(spd.Width, spd.Height)
     let mutable fSpeed   = SizeF(spd.Width, spd.Height)
     let mutable lastT    = System.DateTime.Now
@@ -237,7 +238,61 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     let getRegion() =
         let gPBall = new Drawing2D.GraphicsPath()
         gPBall.AddEllipse(location.X, location.Y, size.Width, size.Height)
+        gPBall.CloseFigure()
         new Region(gPBall)
+
+    // Calcola la distanza tra due punti
+    let calculateDistance (p1: PointF) (p2: PointF) =
+        let x, y = p2.X - p1.X, p2.Y - p1.Y
+        sqrt ((x * x) + (y * y))
+
+    // Collisione con pallina e punto d'intersezione
+    let collideWithLine (obj: GraphicsObject) (inters1: PointF byref) (inters2: PointF byref) =
+        let cx  = location.X + 12.5f
+        let cy  = location.Y + 12.5f
+        let rad = 12.5f
+
+        let point1 = obj.Handlers.[0]
+        let point2 = obj.Handlers.[1]
+
+        let dx = point2.X - point1.X
+        let dy = point2.Y - point1.Y
+
+        let A   = (dx * dx) + (dy * dy)
+        let B   = 2.f * (dx * (point1.X - cx) + dy * (point1.Y - cy))
+        let C   = (point1.X - cx) * (point1.X - cx) + (point1.Y - cy) * (point1.Y - cy) - (rad * rad)
+        let det = (B * B) - (4.f * A * C)
+
+        if A <= 0.0000001f || det < 0.f then
+            inters1 <- PointF(single nan, single nan)
+            inters2 <- PointF(single nan, single nan)
+            false
+        elif det = 0.f then
+            let t = -B / (2.f * A)
+            inters1 <- PointF(point1.X + t * dx, point1.Y + t * dy)
+            inters2 <- PointF(single nan, single nan)
+            true
+        else
+            let t1 = (-B + (sqrt det) / (2.f * A))
+            let t2 = (-B - (sqrt det) / (2.f * A))
+            inters1 <- PointF(point1.X + t1 * dx, point1.Y + t1 * dy)
+            inters2 <- PointF(point1.X + t2 * dx, point1.Y + t2 * dy)
+            true
+    
+    // Restituisce il punto d'intersezione
+    let intersectionWithLine (obj: GraphicsObject) =
+        let mutable inters1 = PointF()
+        let mutable inters2 = PointF()
+
+        collideWithLine obj (&inters1) (&inters2) |> ignore
+
+        if inters2.X = (single nan) && inters2.Y = (single nan) then inters1
+        else 
+            let dist1 = calculateDistance inters1 (obj.Handlers.[0])
+            let dist2 = calculateDistance inters2 (obj.Handlers.[0])
+
+            if dist1 < dist2 then inters1
+            else inters2
 
     // Calcola il grado di verità di una collisione con una pallina
     let collideWithBall (b: Ball) =
@@ -251,12 +306,16 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
 
     // Calcola il grado di verità di una collisione con un oggetto
     let collideWithObj (obj: GraphicsObject) =
-        let tRegion = getRegion()
+        if obj.Type = GraphicsObjectType.Line then
+            let mutable p1, p2 = PointF(), PointF()
+            collideWithLine obj (&p1) (&p2)
+        else
+            let tRegion = getRegion()
 
-        let (intersect: Drawing2D.GraphicsPath -> unit) = tRegion.Intersect
-        intersect(obj.GraphicsPath)
+            let (intersect: Drawing2D.GraphicsPath -> unit) = tRegion.Intersect
+            intersect(obj.GraphicsPath)
 
-        tRegion.GetRegionScans(new Drawing2D.Matrix()).Length > 0
+            tRegion.GetRegionScans(new Drawing2D.Matrix()).Length > 0
 
     // Calcola il grado di verità di una collisione e restituisce un eventuale indice
     let collideWith (aObj: ResizeArray<GraphicsObject>) (aBalls: ResizeArray<Ball>) =
@@ -289,8 +348,12 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
             elif collideBall then (idxBall - 1, 1)
             else (-1, -1)
 
-    member this.Location       = location
-    member this.Speed          = fSpeed
+    member this.Location     with get() = location and set(v) = location <- v
+    member this.finalSpeed   with get() = fSpeed   and set(v) = fSpeed   <- v
+    member this.initSpeed    with get() = iSpeed   and set(v) = iSpeed   <- v
+    member this.LastT        with get() = lastT    and set(v) = lastT    <- v
+
+    member this.Size           = size
     member this.CenterLocation = PointF(location.X + (size.Width * 0.5f), location.Y + (size.Height * 0.5f))
     member this.Bounds         = new RectangleF(location, size)
     member this.BPen           = ballPen
@@ -300,21 +363,69 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
     member this.UpdateSpeed (aObj: ResizeArray<GraphicsObject>) (aBalls: ResizeArray<Ball>) =
         let collision = collideWith aObj aBalls
 
+        let newV (b: Ball) (p: PointF) =
+            let centerX, centerY = b.CenterLocation.X, b.CenterLocation.Y
+            let pointX,  pointY  = centerX - p.X, centerY - p.Y
+            let spdV = sqrt ((b.finalSpeed.Width * b.finalSpeed.Width) + (b.finalSpeed.Height * b.finalSpeed.Height))
+            let angV = atan2 (b.finalSpeed.Width) (b.finalSpeed.Height)
+            let angP = atan2 pointY pointX
+            let newVx, newVy = spdV * cos (angP - angV), spdV * sin (angP - angV)
+            [| newVx; newVy |]
+
         match collision with
         | (-1, -1)   -> ()
-        | (idx, typ) when typ = 2 -> if idx = 0 then 
-                                        iSpeed   <- SizeF(- fSpeed.Width * 0.3f, fSpeed.Height * 0.3f)
-                                        location <- PointF(0.f, location.Y)
-                                     elif idx = 1 then
-                                        iSpeed   <- SizeF(- fSpeed.Width * 0.3f, fSpeed.Height * 0.3f)
-                                        location <- PointF(single parent.Width - size.Width, location.Y)
-                                     elif idx = 2 then
-                                        iSpeed   <- SizeF(fSpeed.Width * 0.3f, - fSpeed.Height * 0.3f)
-                                        location <- PointF(location.X, 0.f)
-                                     else
-                                        iSpeed   <- SizeF(fSpeed.Width * 0.3f, - fSpeed.Height * 0.3f)
-                                        location <- PointF(location.X, single parent.Height - size.Height)
-                                     lastT <- lastTf
+        | (idx, 0)   ->
+            let obj = aObj.[idx]
+            let mutable collisionPoint = PointF()
+
+            if obj.Type = GraphicsObjectType.Line then
+                collisionPoint <- intersectionWithLine obj
+            else
+                let collisionRect =
+                    let tRegion = getRegion()
+                    tRegion.Intersect(aObj.[idx].GraphicsPath)
+
+                    let rects = tRegion.GetRegionScans(new Drawing2D.Matrix())
+                    rects.[rects.Length / 2]
+                
+                collisionPoint <-
+                    PointF(collisionRect.X + (collisionRect.Width / 2.f), collisionRect.Y + (collisionRect.Height / 2.f))
+
+            let newVel = newV this collisionPoint
+            location <- lastLoc
+            iSpeed   <- SizeF(newVel.[0] * 0.4f, newVel.[1] * 0.4f)
+            lastT    <- lastTf
+        | (idx, 1)   ->
+            let collidingBall = aBalls.[idx]
+
+            let factorX = if fSpeed.Width  > 0.f then 0.1f else -0.1f
+            let factorY = if fSpeed.Height > 0.f then 0.1f else -0.1f
+
+            //while calculateDistance this.CenterLocation collidingBall.CenterLocation < 25.f do
+            //    this.Location          <- PointF(this.Location.X + factorX, this.Location.Y + factorY)
+
+            //let pointX  = (collidingBall.CenterLocation.X - this.CenterLocation.X) / 2.f
+            //let pointY  = (collidingBall.CenterLocation.Y - this.CenterLocation.Y) / 2.f
+            let newVel1 = newV this (collidingBall.CenterLocation)
+            let newVel2 = newV collidingBall (this.CenterLocation)
+            iSpeed <- SizeF(newVel1.[0] * 0.4f, newVel1.[1] * 0.4f)
+            location <- lastLoc
+            collidingBall.initSpeed <- SizeF(newVel2.[0] * 0.4f, newVel2.[1] * 0.4f)
+            collidingBall.LastT  <- lastTf
+            lastT  <- lastTf
+        | (idx, 2)   -> if idx = 0 then 
+                            iSpeed   <- SizeF(- fSpeed.Width * 0.4f, fSpeed.Height * 0.4f)
+                            location <- PointF(0.f, location.Y)
+                        elif idx = 1 then
+                            iSpeed   <- SizeF(- fSpeed.Width * 0.4f, fSpeed.Height * 0.4f)
+                            location <- PointF(single parent.Width - size.Width, location.Y)
+                        elif idx = 2 then
+                            iSpeed   <- SizeF(fSpeed.Width * 0.4f, - fSpeed.Height * 0.4f)
+                            location <- PointF(location.X, 0.f)
+                        else
+                            iSpeed   <- SizeF(fSpeed.Width * 0.4f, - fSpeed.Height * 0.4f)
+                            location <- PointF(location.X, single parent.Height - size.Height)
+                        lastT <- lastTf
         | _ -> ()
 
     member this.UpdatePosition =
@@ -327,6 +438,7 @@ type Ball(loc: PointF, spd: SizeF, parent: LWCcontainer) as this =
         let x   = - vx * dt
         let y   = - (vy * dt) + ((acc * (dt*dt)) * 0.5f)
 
+        lastLoc  <- location
         location <- new PointF(location.X + x, location.Y + y)
         fSpeed   <- SizeF(iSpeed.Width, iSpeed.Height - (acc * dt))
         lastTf   <- t
