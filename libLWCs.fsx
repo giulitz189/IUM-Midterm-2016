@@ -1,10 +1,10 @@
 ﻿module libLWCs
 
 (*
-    Danilo Cianfrone - mat. 501292
-    Esercizio 2 - libLWC potenziata
+    Forked from Danilo "ar3s3ru" Cianfrone's project "IUM-MidTerm2016",
+    modified by Giuliano "giulitz189" Gradilone
 
-    La nuova libreria, libLWC, permette di specificare se il LWC da inserire in un LWCcontainer
+    La libreria libLWC permette di specificare se il LWC da inserire in un LWCcontainer
     è da esprimere in coordinate mondo o in coordinate vista.
 
     Distinguiamo i vari casi:
@@ -30,6 +30,7 @@
     possibilità di sovrascriverlo in modo da offrire al programmatore cliente più flessibilità
     nella gestione delle proprie classi derivate da LWCcontainer (es. colore background diverso).
 
+	(giulitz189) La libreria viene ora potenziata considerando ogni controllo come parte di un albero
 *)
 
 open System.Windows.Forms
